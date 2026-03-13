@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emapp
+  namespace: emapp
+spec:
+  selector:
+    matchLabels:
+      app: emapp
+  template:
+    metadata:
+      labels:
+        app: emapp
+    spec:
+      containers:
+        - name: emapp
+          image: spridoloba/emapp:1.0
+          imagePullPolicy: Always
+          env:
+            - name: APP_PORT
+              value: "8080"
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: emapp-secret
+                  key: database_name
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emapp-secret
+                  key: database_username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emapp-secret
+                  key: database_password
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql-service.mysql:3306/$(DATABASE_NAME)?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+          ports:
+            - containerPort: 8080
+          startupProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 35
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 5
