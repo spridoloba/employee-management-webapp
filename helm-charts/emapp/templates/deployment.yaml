@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Release.Name }}
+          image: {{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          env:
+            - name: APP_PORT
+              value: {{ .Values.app.config.appPort | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.app.config.mysql.databaseUsername }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.config.mysql.secretmapName }}
+                  key: {{ .Values.app.config.mysql.secretPasswordName }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.app.config.mysql.databaseUrl }}
+          {{- if or .Values.app.resources.requests.cpu .Values.app.resources.requests.memory .Values.app.resources.limits.memory }}
+          resources:
+            {{- if or .Values.app.resources.requests.cpu .Values.app.resources.requests.memory }}
+            requests:
+              {{- if .Values.app.resources.requests.cpu }}
+              cpu: {{ .Values.app.resources.requests.cpu | quote }}
+              {{- end }}
+              {{- if .Values.app.resources.requests.memory }}
+              memory: {{ .Values.app.resources.requests.memory | quote }}
+              {{- end }}
+            {{- end }}
+            {{- if .Values.app.resources.limits.memory }}
+            limits:
+              memory: {{ .Values.app.resources.limits.memory | quote }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.app.config.appPort }}
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.app.config.appPort }}
+            initialDelaySeconds: {{ .Values.app.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.startupProbe.failureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.app.config.appPort }}
+            initialDelaySeconds: {{ .Values.app.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.readinessProbe.failureThreshold }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.app.config.appPort }}
+            initialDelaySeconds: {{ .Values.app.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.livenessProbe.failureThreshold }}
