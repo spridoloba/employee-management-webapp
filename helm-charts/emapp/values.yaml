@@ -27,6 +27,7 @@ app:
       averageUtilization: 80
 
   config:
+    profile: prod
     appPort: "8080"
     nodePort: "30080"
     mysql:

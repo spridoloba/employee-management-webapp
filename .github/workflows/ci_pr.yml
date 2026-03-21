@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-24.04
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-jar
+        path: target/*.jar
+
+  tests:
+    runs-on: ubuntu-24.04
+    needs: build
+    env:
+      DB_NAME: ${{ secrets.DB_NAME_SECRET }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME_SECRET }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD_SECRET }}
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ${{env.DB_NAME}}
+          MYSQL_USER: ${{env.DB_USERNAME}}
+          MYSQL_PASSWORD: ${{env.DB_PASSWORD}}
+        ports:
+          - 3306:3306
+
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Run app and actuator health check
+        env:
+          SPRING_DATASOURCE_URL: "jdbc:mysql://127.0.0.1:3306/${{env.DB_NAME}}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+          SPRING_DATASOURCE_USERNAME: ${{env.DB_USERNAME}}
+          SPRING_DATASOURCE_PASSWORD: ${{env.DB_PASSWORD}}
+          APP_PORT: 8080
+        run: |
+          java -jar target/*.jar > app.log 2>&1 &
+          for i in {1..35}; do
+            if curl -fsS http://127.0.0.1:8080/actuator/health | tee health.json | grep -q '"status":"UP"'; then
+              echo "App works, grats"
+              exit 0
+            fi
+            echo "Waiting for actuator health endpoint"
+            sleep 3
+          done
+          echo "Application failed to start"
+          cat app.log
+          exit 1
+
+  docker_build:
+    runs-on: ubuntu-24.04
+    needs: tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build --tag employee-management-webapp:ci .
