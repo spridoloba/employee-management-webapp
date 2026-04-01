@@ -1,0 +1,137 @@
+name: CI Main Push
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DOCKER_IMAGE: spridoloba/emapp
+  VERSION_FILE: version.txt
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B package --file pom.xml
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/*.jar
+
+  tests:
+    runs-on: ubuntu-24.04
+    needs: build
+    env:
+      DB_NAME: ${{ secrets.DB_NAME_SECRET }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME_SECRET }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD_SECRET }}
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ${{ env.DB_NAME }}
+          MYSQL_USER: ${{ env.DB_USERNAME }}
+          MYSQL_PASSWORD: ${{ env.DB_PASSWORD }}
+        ports:
+          - 3306:3306
+
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Run app and actuator health check
+        env:
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/${{ env.DB_NAME }}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+          SPRING_DATASOURCE_USERNAME: ${{ env.DB_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD: ${{ env.DB_PASSWORD }}
+          APP_PORT: 8080
+        run: |
+          java -jar target/*.jar > app.log 2>&1 &
+          for i in {1..35}; do
+            if curl -fsS http://127.0.0.1:8080/actuator/health | tee health.json | grep -q '"status":"UP"'; then
+              echo "App works, grats"
+              exit 0
+            fi
+            echo "Waiting for actuator health endpoint"
+            sleep 3
+          done
+          echo "Application failed to start"
+          cat app.log
+          exit 1
+
+  docker_publish:
+    runs-on: ubuntu-24.04
+    needs: tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read version from file
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "${VERSION_FILE}" ]; then
+            echo "Missing ${VERSION_FILE}"
+            exit 1
+          fi
+
+          version="$(grep -E '^[[:space:]]*version[[:space:]]*=' "${VERSION_FILE}" | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')"
+
+          if [ -z "${version}" ]; then
+            echo "Version value not found in ${VERSION_FILE}"
+            exit 1
+          fi
+
+          if ! printf '%s' "${version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Version must use semantic format like 1.0.3"
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
