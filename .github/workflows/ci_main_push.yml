@@ -7,17 +7,30 @@ on:
 
 env:
   DOCKER_IMAGE: spridoloba/emapp
-  VERSION_FILE: version.txt
 
 jobs:
-  build:
+  calculate_version:
     runs-on: ubuntu-24.04
-
+    outputs:
+      new_tag: ${{ steps.dry_run.outputs.new_tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Calculate next version (dry run)
+        id: dry_run
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          dry_run: true
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -89,35 +102,15 @@ jobs:
 
   docker_publish:
     runs-on: ubuntu-24.04
-    needs: tests
-
+    needs: [calculate_version, tests]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Read version from file
-        id: version
-        shell: bash
+      - name: Set app version
         run: |
-          set -euo pipefail
-          if [ ! -f "${VERSION_FILE}" ]; then
-            echo "Missing ${VERSION_FILE}"
-            exit 1
-          fi
-
-          version="$(grep -E '^[[:space:]]*version[[:space:]]*=' "${VERSION_FILE}" | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')"
-
-          if [ -z "${version}" ]; then
-            echo "Version value not found in ${VERSION_FILE}"
-            exit 1
-          fi
-
-          if ! printf '%s' "${version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Version must use semantic format like 1.0.3"
-            exit 1
-          fi
-
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          NEW_TAG="${{ needs.calculate_version.outputs.new_tag }}"
+          echo "APP_VERSION=${NEW_TAG#v}" >> "$GITHUB_ENV"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -134,4 +127,130 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ env.APP_VERSION }}
+            ${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  helm_package:
+    runs-on: ubuntu-24.04
+    needs: [calculate_version, tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set app version
+        run: |
+          NEW_TAG="${{ needs.calculate_version.outputs.new_tag }}"
+          echo "APP_VERSION=${NEW_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm chart
+        run: helm lint helm-charts/emapp/
+
+      - name: Update image tag in values.yaml
+        run: |
+          sed -i 's/tag: "[^"]*"/tag: "'"${APP_VERSION}"'"/g' helm-charts/emapp/values.yaml
+
+      - name: Package Helm chart
+        run: |
+          helm package helm-charts/emapp/ \
+            --version "${APP_VERSION}" \
+            --app-version "${APP_VERSION}"
+
+      - name: Upload Helm chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: emapp-${{ env.APP_VERSION }}.tgz
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Helm chart to GHCR
+        run: |
+          helm push "emapp-${APP_VERSION}.tgz" \
+            "oci://ghcr.io/${{ github.repository_owner }}/charts"
+
+  create_release:
+    runs-on: ubuntu-24.04
+    needs: [docker_publish, helm_package]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Git tag and GitHub Release
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    runs-on: ubuntu-24.04
+    needs: [create_release, calculate_version]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set app version
+        run: |
+          NEW_TAG="${{ needs.calculate_version.outputs.new_tag }}"
+          echo "APP_VERSION=${NEW_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group emapp-rg \
+            --name emapp-aks \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Add Bitnami Helm repo
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Deploy MySQL
+        run: |
+          helm upgrade --install mysql bitnami/mysql \
+            --set auth.rootPassword="${{ secrets.MYSQL_ROOT_PASSWORD }}" \
+            --set auth.username="${{ secrets.MYSQL_USERNAME }}" \
+            --set auth.password="${{ secrets.MYSQL_PASSWORD }}" \
+            --set auth.database="${{ secrets.MYSQL_DATABASE }}" \
+            --namespace emapp \
+            --create-namespace \
+            -f helm-charts/sqlvalues.yaml \
+            --wait
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username ${{ github.repository_owner }} \
+            --password-stdin
+
+      - name: Deploy application
+        run: |
+          helm upgrade --install emapp \
+            oci://ghcr.io/${{ github.repository_owner }}/charts/emapp \
+            --version "${{ env.APP_VERSION }}" \
+            --set app.image.tag="${{ env.APP_VERSION }}" \
+            --set app.config.mysql.databaseUsername="${{ secrets.MYSQL_USERNAME }}" \
+            --set app.config.mysql.databaseName="${{ secrets.MYSQL_DATABASE }}" \
+            --namespace emapp \
+            --create-namespace \
+            --wait

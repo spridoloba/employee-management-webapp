@@ -26,6 +26,10 @@ app:
       enabled: true
       averageUtilization: 80
 
+  ingress:
+    enabled: false
+    host: ""
+
   config:
     profile: prod
     appPort: "8080"

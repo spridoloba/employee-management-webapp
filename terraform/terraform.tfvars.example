@@ -1,0 +1,22 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is listed in .gitignore — never commit it.
+
+subscription_id     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+resource_group_name = "emapp-rg"
+location            = "East US"
+cluster_name        = "emapp-aks"
+kubernetes_version  = "1.31"
+
+# Node pool sizes
+system_node_vm_size = "Standard_DC2s_v3"
+worker_node_vm_size = "Standard_DC2s_v3"
+worker_node_count   = 1
+os_disk_size_gb     = 50
+
+environment = "production"
+
+# Optional: extra tags applied to every resource
+tags = {
+  Owner = "your-team"
+  CostCenter = "engineering"
+}
