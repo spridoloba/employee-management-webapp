@@ -6,7 +6,9 @@ spec:
   selector:
     app: {{ .Release.Name }}
   ports:
-    - port: {{ .Values.app.config.appPort }}
-      targetPort: {{ .Values.app.config.appPort }}
-      nodePort: {{ .Values.app.config.nodePort }}
-  type: NodePort
+    - port: {{ .Values.app.config.appPort | int }}
+      targetPort: {{ .Values.app.config.appPort | int }}
+      {{- if eq .Values.app.serviceType "NodePort" }}
+      nodePort: {{ .Values.app.config.nodePort | int }}
+      {{- end }}
+  type: {{ .Values.app.serviceType }}

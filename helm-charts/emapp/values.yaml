@@ -26,9 +26,12 @@ app:
       enabled: true
       averageUtilization: 80
 
+  serviceType: NodePort
+
   ingress:
     enabled: false
     host: ""
+    className: nginx
 
   config:
     profile: prod
