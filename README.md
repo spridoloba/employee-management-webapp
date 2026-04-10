@@ -42,6 +42,10 @@ environment.
     -   [Install the Application](#install-the-application)
     -   [Access the Application](#access-the-application)
     -   [Cleanup](#cleanup)
+-   [Terraform](#terraform)
+    -   [Initialize and Apply](#initialize-and-apply)
+    -   [Key Variables](#key-variables)
+    -   [Destroy](#destroy)
 ------------------------------------------------------------------------
 
 # Docker
@@ -559,3 +563,71 @@ helm uninstall mysql -n emapp
 ``` bash
 helm uninstall emapp -n emapp
 ```
+
+------------------------------------------------------------------------
+
+# Terraform
+
+The `terraform/` directory provisions the Azure infrastructure for this
+project using Terraform.
+
+**What it creates:**
+
+-   Azure Resource Group
+-   AKS cluster with a dedicated system node pool (kube-system workloads
+    only) and a worker node pool (application workloads)
+
+Azure fully manages the Kubernetes control plane (API server, etcd).
+
+------------------------------------------------------------------------
+
+## Initialize and Apply
+
+``` bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars` with your values, then:
+
+``` bash
+terraform init
+terraform plan
+terraform apply
+```
+
+**Connect kubectl after apply:**
+
+``` bash
+az aks get-credentials \
+  --resource-group $(terraform output -raw resource_group_name) \
+  --name $(terraform output -raw cluster_name)
+```
+
+------------------------------------------------------------------------
+
+## Key Variables
+
+Set these in `terraform.tfvars`:
+
+| Variable | Description | Default |
+|---|---|---|
+| `subscription_id` | **Required.** Your Azure Subscription ID | — |
+| `resource_group_name` | Resource group to create | `emapp-rg` |
+| `cluster_name` | AKS cluster name | `emapp-aks` |
+| `location` | Azure region | `East US` |
+| `kubernetes_version` | Must be LTS (`1.27`, `1.30`, `1.31`) | `1.31` |
+| `worker_node_vm_size` | VM size for application nodes | `Standard_DC2s_v3` |
+| `worker_node_count` | Number of worker nodes | `1` |
+
+> `terraform.tfvars` is git-ignored — never commit it.
+
+------------------------------------------------------------------------
+
+## Destroy
+
+``` bash
+terraform destroy
+```
+
+Deletes all resources including the resource group. PVC data will be lost.
