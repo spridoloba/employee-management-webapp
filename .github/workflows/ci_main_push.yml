@@ -245,12 +245,14 @@ jobs:
 
       - name: Deploy application
         run: |
+          DB="${{ secrets.MYSQL_DATABASE }}"
+          URL="jdbc:mysql://mysql:3306/${DB}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
           helm upgrade --install emapp \
             oci://ghcr.io/${{ github.repository_owner }}/charts/emapp \
             --version "${{ env.APP_VERSION }}" \
             --set app.image.tag="${{ env.APP_VERSION }}" \
             --set app.config.mysql.databaseUsername="${{ secrets.MYSQL_USERNAME }}" \
-            --set app.config.mysql.databaseName="${{ secrets.MYSQL_DATABASE }}" \
+            --set app.config.mysql.databaseUrl="${URL}" \
             --set app.serviceType=LoadBalancer \
             --namespace emapp \
             --create-namespace \
