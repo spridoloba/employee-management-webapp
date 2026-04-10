@@ -251,6 +251,25 @@ jobs:
             --set app.image.tag="${{ env.APP_VERSION }}" \
             --set app.config.mysql.databaseUsername="${{ secrets.MYSQL_USERNAME }}" \
             --set app.config.mysql.databaseName="${{ secrets.MYSQL_DATABASE }}" \
+            --set app.serviceType=LoadBalancer \
             --namespace emapp \
             --create-namespace \
             --wait
+
+      - name: Get website URL
+        run: |
+          echo "Waiting for external IP..."
+          for i in {1..30}; do
+            IP=$(kubectl get svc emapp-service -n emapp \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            if [ -n "$IP" ]; then
+              echo "Website URL: http://${IP}:8080"
+              break
+            fi
+            echo "Attempt $i/30, retrying in 10s..."
+            sleep 10
+          done
+          if [ -z "$IP" ]; then
+            echo "Timed out waiting for external IP"
+            exit 1
+          fi
