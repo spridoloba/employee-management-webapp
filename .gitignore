@@ -1,5 +1,22 @@
+# Secrets / env
 .env
 !.env.example
+
+# Maven build output
+target/
+*.class
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Terraform
 terraform/.terraform/
@@ -8,3 +25,13 @@ terraform/terraform.tfvars
 terraform/*.tfstate
 terraform/*.tfstate.backup
 terraform/crash.log
+
+# Kubernetes / Helm local artifacts
+kubeconfig
+helm-charts/emapp/charts/
+helm-charts/emapp/Chart.lock
+*.tgz
+
+# Certificates / keys
+*.pem
+*.key

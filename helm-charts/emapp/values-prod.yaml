@@ -1,0 +1,100 @@
+# Production overrides — used against AKS.
+# Apply with:
+#   helm upgrade --install emapp oci://ghcr.io/spridoloba/charts/emapp \
+#     --version <semver> -n emapp -f helm-charts/emapp/values-prod.yaml
+app:
+  image:
+    tag: "1.0.0"                   # always pinned in prod
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  serviceType: ClusterIP
+
+  config:
+    profile: prod
+    appPort: "8080"
+    mysql:
+      databaseUsername: app
+      databaseName: emapp
+      secretName: emapp-secret
+      secretPasswordName: database_password
+      databaseUrl: "jdbc:mysql://mysql:3306/emapp?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+
+  ingress:
+    enabled: true
+    className: nginx
+    host: emapp.example.com
+    path: /
+    pathType: Prefix
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    tls:
+      enabled: true
+      secretName: emapp-tls
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    cpu:
+      enabled: true
+      averageUtilization: 70
+    memory:
+      enabled: true
+      averageUtilization: 80
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  networkPolicy:
+    enabled: true
+
+  # SealedSecret workflow:
+  #   1. populate .env with real prod values
+  #   2. ./scripts/seal-secret.sh  > sealed.yaml
+  #   3. copy the `encryptedData:` block under app.sealedSecret.encryptedData here
+  sealedSecret:
+    enabled: true
+    encryptedData: {}
+
+  secret:
+    create: false                  # prod uses SealedSecret, not a plain Secret
+
+  podAntiAffinity:
+    enabled: true
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: emapp
+          app.kubernetes.io/instance: emapp
+
+  probes:
+    startup:
+      path: /actuator/health
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      failureThreshold: 30
+    readiness:
+      path: /actuator/health
+      periodSeconds: 10
+      failureThreshold: 5
+    liveness:
+      path: /actuator/health
+      periodSeconds: 15
+      failureThreshold: 5

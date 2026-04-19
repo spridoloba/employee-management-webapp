@@ -148,8 +148,14 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      - name: Lint Helm chart
+      - name: Lint Helm chart (base)
         run: helm lint helm-charts/emapp/
+
+      - name: Lint Helm chart (dev)
+        run: helm lint helm-charts/emapp/ -f helm-charts/emapp/values-dev.yaml
+
+      - name: Lint Helm chart (prod)
+        run: helm lint helm-charts/emapp/ -f helm-charts/emapp/values-prod.yaml
 
       - name: Update image tag in values.yaml
         run: |
@@ -243,17 +249,26 @@ jobs:
             --username ${{ github.repository_owner }} \
             --password-stdin
 
+      - name: Pull chart from GHCR
+        run: |
+          helm pull oci://ghcr.io/${{ github.repository_owner }}/charts/emapp \
+            --version "${{ env.APP_VERSION }}" \
+            --untar --untardir ./chart-release
+
       - name: Deploy application
         run: |
           DB="${{ secrets.MYSQL_DATABASE }}"
           URL="jdbc:mysql://mysql:3306/${DB}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
-          helm upgrade --install emapp \
-            oci://ghcr.io/${{ github.repository_owner }}/charts/emapp \
-            --version "${{ env.APP_VERSION }}" \
+          helm upgrade --install emapp ./chart-release/emapp \
+            -f ./chart-release/emapp/values-prod.yaml \
             --set app.image.tag="${{ env.APP_VERSION }}" \
             --set app.config.mysql.databaseUsername="${{ secrets.MYSQL_USERNAME }}" \
             --set app.config.mysql.databaseUrl="${URL}" \
             --set app.serviceType=LoadBalancer \
+            --set app.ingress.enabled=false \
+            --set app.sealedSecret.enabled=false \
+            --set app.secret.create=true \
+            --set app.secret.data.SPRING_DATASOURCE_PASSWORD="${{ secrets.MYSQL_PASSWORD }}" \
             --namespace emapp \
             --create-namespace \
             --wait
@@ -262,7 +277,7 @@ jobs:
         run: |
           echo "Waiting for external IP..."
           for i in {1..30}; do
-            IP=$(kubectl get svc emapp-service -n emapp \
+            IP=$(kubectl get svc emapp -n emapp \
               -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
             if [ -n "$IP" ]; then
               echo "Website URL: http://${IP}:8080"

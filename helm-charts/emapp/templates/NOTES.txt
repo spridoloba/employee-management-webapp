@@ -1,0 +1,26 @@
+
+emapp {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Image:  {{ include "emapp.image" . }}
+Service: {{ .Values.app.serviceType }}
+{{- if .Values.app.ingress.enabled }}
+
+Ingress:
+  URL: {{ if .Values.app.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.app.ingress.host }}{{ .Values.app.ingress.path }}
+{{- else if eq .Values.app.serviceType "NodePort" }}
+
+Service (NodePort {{ .Values.app.config.nodePort }}):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "emapp.fullname" . }} 8080:{{ .Values.app.config.appPort }}
+  curl http://localhost:8080/actuator/health
+{{- else }}
+
+Service (ClusterIP):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "emapp.fullname" . }} 8080:{{ .Values.app.config.appPort }}
+  curl http://localhost:8080/actuator/health
+{{- end }}
+
+Check rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "emapp.fullname" . }}
+
+Tail logs:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/name={{ include "emapp.name" . }} -f --tail=100
