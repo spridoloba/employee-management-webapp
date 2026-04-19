@@ -1,0 +1,25 @@
+controller:
+  # Kind-friendly scheduling: use the control-plane node tagged ingress-ready=true
+  nodeSelector:
+    ingress-ready: "true"
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Equal
+      effect: NoSchedule
+  hostPort:
+    enabled: true
+  service:
+    type: NodePort
+  admissionWebhooks:
+    patch:
+      nodeSelector:
+        ingress-ready: "true"
+  publishService:
+    enabled: false
+  # Production-minded defaults
+  config:
+    use-forwarded-headers: "true"
+    enable-real-ip: "true"
+    ssl-redirect: "false"
+  metrics:
+    enabled: false

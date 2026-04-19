@@ -1,0 +1,29 @@
+# Kind cluster config for local dev.
+# The control-plane node is labelled ingress-ready=true so that
+# ingress-nginx schedules there and binds host ports 80/443.
+# Port 30080 stays mapped for NodePort-based access during bootstrap.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: emapp
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+  - role: worker
+    extraMounts:
+      - hostPath: /home/kind-storage/mysql
+        containerPath: /data/mysql
