@@ -1,6 +1,7 @@
 services:
   db:
     image: mysql:8.4
+    container_name: emapp-db
     environment:
       MYSQL_DATABASE: ${DATABASE_NAME}
       MYSQL_USER: ${DATABASE_USERNAME}
@@ -10,17 +11,29 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - emapp-net
     healthcheck:
-      test: ["CMD","mysqladmin","ping","-h","localhost","-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 3s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: emapp:local
+    container_name: emapp-app
     ports:
       - "${APP_PORT}:${APP_PORT}"
     environment:
+      SPRING_PROFILES_ACTIVE: dev
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DATABASE_NAME}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: ${DATABASE_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
@@ -28,6 +41,35 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - emapp-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${APP_PORT}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+
+  adminer:
+    image: adminer:latest
+    container_name: emapp-adminer
+    profiles: ["tools"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - emapp-net
+
+networks:
+  emapp-net:
+    driver: bridge
 
 volumes:
   mysql_data:
