@@ -1,0 +1,32 @@
+# VCS
+.git/
+.gitignore
+.github/
+
+# Build output
+target/
+*.class
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# DevOps (not needed inside image)
+k8s/
+helm-charts/
+terraform/
+scripts/
+docs/
+
+# Local env / secrets
+.env
+.env.example
+
+# Docs
+*.md
+LICENSE
+
+# OS
+.DS_Store
+Thumbs.db
