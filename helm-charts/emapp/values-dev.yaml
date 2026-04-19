@@ -1,0 +1,61 @@
+# Dev overrides — used against a local Kind cluster.
+# Apply with:
+#   helm upgrade --install emapp helm-charts/emapp \
+#     -n emapp -f helm-charts/emapp/values-dev.yaml
+app:
+  image:
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  serviceType: NodePort
+
+  config:
+    profile: dev
+    appPort: "8080"
+    nodePort: "30080"
+    mysql:
+      databaseUsername: app
+      databaseName: demo
+      secretName: emapp-secret
+      secretPasswordName: database_password
+      databaseUrl: "jdbc:mysql://mysql:3306/demo?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+
+  ingress:
+    enabled: false
+
+  autoscaling:
+    enabled: false
+
+  pdb:
+    enabled: false
+
+  networkPolicy:
+    enabled: false
+
+  # Dev only — the chart manages a plain Secret seeded from scripts/dev-setup.sh.
+  secret:
+    create: true
+
+  sealedSecret:
+    enabled: false
+
+  probes:
+    startup:
+      path: /actuator/health
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      failureThreshold: 30
+    readiness:
+      path: /actuator/health
+    liveness:
+      path: /actuator/health

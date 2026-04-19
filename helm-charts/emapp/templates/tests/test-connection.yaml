@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "emapp.fullname" . }}-test-health
+  labels:
+    {{- include "emapp.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.10.1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      command: ["sh", "-c"]
+      args:
+        - |
+          set -e
+          for i in $(seq 1 30); do
+            if curl -fsS "http://{{ include "emapp.fullname" . }}:{{ .Values.app.config.appPort }}/actuator/health" | grep -q '"status":"UP"'; then
+              echo "app healthy"; exit 0
+            fi
+            echo "waiting ($i/30)..."; sleep 5
+          done
+          echo "health check failed"; exit 1

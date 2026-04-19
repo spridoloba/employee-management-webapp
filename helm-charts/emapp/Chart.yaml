@@ -1,6 +1,11 @@
 apiVersion: v2
 name: emapp
-description: A Helm chart for Employee Management application
+description: Helm chart for the Employee Management Spring Boot web application
 type: application
-version: 0.1.0
-appVersion: "1.16.0"
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: spridoloba
+kubeVersion: ">=1.27.0"
+sources:
+  - https://github.com/spridoloba/employee-management-webapp

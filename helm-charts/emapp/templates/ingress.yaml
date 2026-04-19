@@ -2,18 +2,30 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .Release.Name }}-ingress
+  name: {{ include "emapp.fullname" . }}
+  labels:
+    {{- include "emapp.labels" . | nindent 4 }}
+  {{- with .Values.app.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   ingressClassName: {{ .Values.app.ingress.className }}
+  {{- if .Values.app.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.app.ingress.host | quote }}
+      secretName: {{ .Values.app.ingress.tls.secretName }}
+  {{- end }}
   rules:
-    - host: {{ .Values.app.ingress.host }}
+    - host: {{ .Values.app.ingress.host | quote }}
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          - path: {{ .Values.app.ingress.path | default "/" }}
+            pathType: {{ .Values.app.ingress.pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ .Release.Name }}-service
+                name: {{ include "emapp.fullname" . }}
                 port:
-                  number: {{ .Values.app.config.appPort | int }}
+                  name: http
 {{- end }}

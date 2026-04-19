@@ -1,70 +1,114 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ include "emapp.fullname" . }}
+  labels:
+    {{- include "emapp.labels" . | nindent 4 }}
 spec:
+  replicas: {{ .Values.app.replicaCount }}
+  revisionHistoryLimit: {{ .Values.app.revisionHistoryLimit }}
+  strategy:
+    {{- toYaml .Values.app.strategy | nindent 4 }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
+      {{- include "emapp.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}
+        {{- include "emapp.selectorLabels" . | nindent 8 }}
+        {{- with .Values.app.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.app.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      serviceAccountName: {{ include "emapp.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.app.podSecurityContext | nindent 8 }}
+      {{- with .Values.app.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.app.podAntiAffinity.enabled }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "emapp.selectorLabels" . | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+      {{- with .Values.app.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
-        - name: {{ .Release.Name }}
-          image: {{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}
+        - name: app
+          image: {{ include "emapp.image" . | quote }}
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.app.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.config.appPort | int }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "emapp.fullname" . }}-config
+            - secretRef:
+                name: {{ include "emapp.secretName" . }}
           env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: {{ .Values.app.config.profile }}
-            - name: APP_PORT
-              value: {{ .Values.app.config.appPort | quote }}
-            - name: SPRING_DATASOURCE_USERNAME
-              value: {{ .Values.app.config.mysql.databaseUsername }}
             - name: SPRING_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.app.config.mysql.secretName }}
+                  name: {{ include "emapp.secretName" . }}
                   key: {{ .Values.app.config.mysql.secretPasswordName }}
-            - name: SPRING_DATASOURCE_URL
-              value: {{ .Values.app.config.mysql.databaseUrl }}
-          {{- if or .Values.app.resources.requests.cpu .Values.app.resources.requests.memory .Values.app.resources.limits.memory }}
+            {{- with .Values.app.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
-            {{- if or .Values.app.resources.requests.cpu .Values.app.resources.requests.memory }}
-            requests:
-              {{- if .Values.app.resources.requests.cpu }}
-              cpu: {{ .Values.app.resources.requests.cpu | quote }}
-              {{- end }}
-              {{- if .Values.app.resources.requests.memory }}
-              memory: {{ .Values.app.resources.requests.memory | quote }}
-              {{- end }}
-            {{- end }}
-            {{- if .Values.app.resources.limits.memory }}
-            limits:
-              memory: {{ .Values.app.resources.limits.memory | quote }}
-            {{- end }}
-          {{- end }}
-          ports:
-            - containerPort: {{ .Values.app.config.appPort }}
+            {{- toYaml .Values.app.resources | nindent 12 }}
           startupProbe:
-            tcpSocket:
-              port: {{ .Values.app.config.appPort }}
-            initialDelaySeconds: {{ .Values.app.startupProbe.initialDelaySeconds }}
-            periodSeconds: {{ .Values.app.startupProbe.periodSeconds }}
-            timeoutSeconds: {{ .Values.app.startupProbe.timeoutSeconds }}
-            failureThreshold: {{ .Values.app.startupProbe.failureThreshold }}
+            httpGet:
+              path: {{ .Values.app.probes.startup.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.app.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.startup.failureThreshold }}
           readinessProbe:
-            tcpSocket:
-              port: {{ .Values.app.config.appPort }}
-            initialDelaySeconds: {{ .Values.app.readinessProbe.initialDelaySeconds }}
-            periodSeconds: {{ .Values.app.readinessProbe.periodSeconds }}
-            timeoutSeconds: {{ .Values.app.readinessProbe.timeoutSeconds }}
-            failureThreshold: {{ .Values.app.readinessProbe.failureThreshold }}
+            httpGet:
+              path: {{ .Values.app.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.app.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.readiness.failureThreshold }}
           livenessProbe:
-            tcpSocket:
-              port: {{ .Values.app.config.appPort }}
-            initialDelaySeconds: {{ .Values.app.livenessProbe.initialDelaySeconds }}
-            periodSeconds: {{ .Values.app.livenessProbe.periodSeconds }}
-            timeoutSeconds: {{ .Values.app.livenessProbe.timeoutSeconds }}
-            failureThreshold: {{ .Values.app.livenessProbe.failureThreshold }}
+            httpGet:
+              path: {{ .Values.app.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.app.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.liveness.failureThreshold }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
